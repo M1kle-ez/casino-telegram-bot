@@ -21,7 +21,7 @@ DB_NAME = "casino_game.db"
 # Словарь для хранения времени последнего клика {user_id: timestamp}
 CLICK_COOLDOWNS = {}
 # Время задержки между кликами в секундах
-CLICK_DELAY = 0.8
+CLICK_DELAY = 1
 
 
 def init_db():
