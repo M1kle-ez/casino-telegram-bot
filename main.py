@@ -1,7 +1,6 @@
 import asyncio
 import random
 import sqlite3
-import time
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
@@ -16,13 +15,6 @@ dp = Dispatcher()
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ SQLite ---
 DB_NAME = "casino_game.db"
-
-# --- ЗАЩИТА ОТ СПАМА (КЛИКЕРА) ---
-# Словарь для хранения времени последнего клика {user_id: timestamp}
-CLICK_COOLDOWNS = {}
-# Время задержки между кликами в секундах
-CLICK_DELAY = 1
-
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -85,6 +77,7 @@ class CasinoStates(StatesGroup):
     clicker_menu = State()
     waiting_for_dep_amount = State()
     waiting_for_color = State()
+    cooldown = State()
 
 
 def get_main_menu():
@@ -187,33 +180,26 @@ async def press_earn(message: types.Message, state: FSMContext):
 
 
 # Обработчик клика с проверкой задержки времени
+# ОБНОВЛЕННЫЙ ОБРАБОТЧИК КЛИКА С АВТО-ЗАДЕРЖКОЙ
 @dp.message(CasinoStates.clicker_menu, lambda message: message.text == "⚡️ КЛИК!")
 async def press_click(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    current_time = time.time()
-
-    # Проверяем, нажимал ли пользователь кнопку ранее
-    if user_id in CLICK_COOLDOWNS:
-        last_click_time = CLICK_COOLDOWNS[user_id]
-        time_passed = current_time - last_click_time
-
-        # Если прошло меньше секунд, чем настроено в CLICK_DELAY
-        if time_passed < CLICK_DELAY:
-            time_left = int(CLICK_DELAY - time_passed) + 1
-            await message.answer(f"⏳ Не спамь! Сервер устал. Подожди ещё **{time_left} сек.** перед следующим кликом.")
-            return
-
-    # Если проверка пройдена, обновляем время последнего клика
-    CLICK_COOLDOWNS[user_id] = current_time
+    # 1. Мгновенно блокируем пользователя, переводя в режим кулдауна
+    await state.set_state(CasinoStates.cooldown)
 
     username = message.from_user.username or message.from_user.first_name
-    current_balance = get_user_balance(user_id, username)
+    current_balance = get_user_balance(message.from_user.id, username)
 
     earned = random.randint(1, 3)
     new_balance = current_balance + earned
 
-    update_user_balance(user_id, new_balance)
+    update_user_balance(message.from_user.id, new_balance)
     await message.answer(f"➕ Заработано: **{earned}$**\n💰 Текущий баланс: **{new_balance}$**")
+
+    # 2. Включаем авто-задержку на 3 секунды
+    await asyncio.sleep(1)
+
+    # 3. Возвращаем пользователя в кликер, кнопка снова активна!
+    await state.set_state(CasinoStates.clicker_menu)
 
 
 # --- КНОПКА: МАГАЗИН ЗВЁЗД (Работает в любом состоянии) ---
