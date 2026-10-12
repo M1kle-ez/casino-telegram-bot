@@ -1,6 +1,7 @@
 import asyncio
 import random
 import sqlite3
+import time
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
@@ -15,6 +16,12 @@ dp = Dispatcher()
 
 # --- РАБОТА С БАЗОЙ ДАННЫХ SQLite ---
 DB_NAME = "casino_game.db"
+
+# --- ЗАЩИТА ОТ СПАМА (КЛИКЕРА) ---
+# Словарь для хранения времени последнего клика {user_id: timestamp}
+CLICK_COOLDOWNS = {}
+# Время задержки между кликами в секундах
+CLICK_DELAY = 0.8
 
 
 def init_db():
@@ -179,16 +186,33 @@ async def press_earn(message: types.Message, state: FSMContext):
     await state.set_state(CasinoStates.clicker_menu)
 
 
-# Обработчик клика
+# Обработчик клика с проверкой задержки времени
 @dp.message(CasinoStates.clicker_menu, lambda message: message.text == "⚡️ КЛИК!")
 async def press_click(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    current_time = time.time()
+
+    # Проверяем, нажимал ли пользователь кнопку ранее
+    if user_id in CLICK_COOLDOWNS:
+        last_click_time = CLICK_COOLDOWNS[user_id]
+        time_passed = current_time - last_click_time
+
+        # Если прошло меньше секунд, чем настроено в CLICK_DELAY
+        if time_passed < CLICK_DELAY:
+            time_left = int(CLICK_DELAY - time_passed) + 1
+            await message.answer(f"⏳ Не спамь! Сервер устал. Подожди ещё **{time_left} сек.** перед следующим кликом.")
+            return
+
+    # Если проверка пройдена, обновляем время последнего клика
+    CLICK_COOLDOWNS[user_id] = current_time
+
     username = message.from_user.username or message.from_user.first_name
-    current_balance = get_user_balance(message.from_user.id, username)
+    current_balance = get_user_balance(user_id, username)
 
     earned = random.randint(1, 3)
     new_balance = current_balance + earned
 
-    update_user_balance(message.from_user.id, new_balance)
+    update_user_balance(user_id, new_balance)
     await message.answer(f"➕ Заработано: **{earned}$**\n💰 Текущий баланс: **{new_balance}$**")
 
 
